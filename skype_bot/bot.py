@@ -2,8 +2,7 @@
 import requests
 import json
 import logging
-from jwt_utils import JWT_Utils
-import time
+from auth import Auth
 
 from flask import Flask, request
 
@@ -13,13 +12,13 @@ class Bot:
     bot_password = None
     bot_app_id = None
 
-    bearer_token = None
-    bearer_token_exp_time = None
-
     api_url = 'https://api.skype.net'
-    auth_url = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
+
     bot_endpoint = '/api/messages'
+
+    # default port value, can be overriden in config
     bot_port = 3978
+    # default hostname, can be overriden in config
     bot_host = 'localhost'
 
     app = Flask(__name__)  # Flask app object
@@ -29,55 +28,52 @@ class Bot:
     remove_from_contactlist_handler = None
     logger = logging.getLogger(__name__)
 
-    def get_bearer_token(self):
-        if self.bearer_token is not None and time.time() < self.bearer_token_exp_time:
-            return
-        data = {'client_id': self.bot_app_id,
-                'client_secret': self.bot_password,
-                'grant_type': 'client_credentials',
-                'scope': 'https://graph.microsoft.com/.default',
-                }
-
-        header = {'Content-Type': 'application/x-www-form-urlencoded'}
-
-        result = requests.post(self.auth_url, data=data, headers=header)
-
-        if result.status_code == 200:
-            bearer_token = json.loads(result.content)['access_token']
-            self.logger.debug('token received: {}'.format(bearer_token))
-            self.bearer_token_exp_time = time.time() + 3600
-            self.bearer_token = bearer_token
-        else:
-            raise Exception('auth failed')
-            self.bearer_token = None
-
     def send(self, conversation_id, message):
+        """
+        Function sends a message to a conversation identified by conversation_id
+        :param conversation_id:
+        :param message: message string
+        :return: HTTP response status
+        """
         send_url = '/v3/conversations/{}/activities'
         data = {'text': message,
                 'type': 'message/text',
                 }
-        headers = {'Authorization': 'Bearer ' + self.bearer_token}
+        headers = {'Authorization': 'Bearer ' + self.auth.get_bearer_token()}
         post_url = (self.api_url + send_url).format(conversation_id)
-        result = requests.post(url=post_url, data=json.dumps(data), headers=headers)
-
-        return result.status_code
+        try :
+            result = requests.post(url=post_url, data=json.dumps(data), headers=headers)
+            return result.status_code
+        except Exception as e:
+            self.logger.exception(e)
+            raise Exception(e)
 
     def __init__(self, config):
         self.bot_name = config['bot_name']
         self.bot_password = config['bot_password']
         self.bot_app_id = config['bot_app_id']
-        self.get_bearer_token()
-        self.jwt_utils = JWT_Utils()
+        if 'port' in config:
+            self.bot_port = config['port']
+        if 'hostname' in config:
+            self.bot_host = config['hostname']
         if 'logging_level' in config:
             logging.basicConfig(level=config['logging_level'],
                                 format='%(asctime)s %(levelname)-8s %(name)-15s %(message)s')
+        self.auth = Auth(self.bot_app_id, self.bot_password)
 
         @self.app.route('/api/messages', methods=['POST'])
         def listen():
-            self.logger.debug(request.headers)
+            """
+            Function accepts incoming requests from MS server, parses it and passes to custom handlers.
+            Request format example:
+                {u'recipient': {u'id': u'28:4f7d6c06-bb77-4f4a-b33c-51485be54c67', u'name': u'duxa-bot'}, u'from': {u'id': u'29:1dHAIi7JbBz8fGKackEJ6fT2Fs5Ov_IsOp1T5tlm1xQE', u'name': u'Andrey Mironenko'}, u'timestamp': u'2016-11-05T18:31:00.795Z', u'channelId': u'skype', u'conversation': {u'id': u'29:1dHAIi7JbBz8fGKackEJ6fT2Fs5Ov_IsOp1T5tlm1xQE'}, u'serviceUrl': u'https://skype.botframework.com', u'action': u'add', u'type': u'contactRelationUpdate', u'id': u'6xsmnHhoMQM'}
+                {u'recipient': {u'id': u'28:4f7d6c06-bb77-4f4a-b33c-51485be54c67', u'name': u'duxa-bot'}, u'from': {u'id': u'29:1dHAIi7JbBz8fGKackEJ6fT2Fs5Ov_IsOp1T5tlm1xQE', u'name': u'Andrey Mironenko'}, u'timestamp': u'2016-11-05T18:08:41.59Z', u'channelId': u'skype', u'conversation': {u'id': u'29:1dHAIi7JbBz8fGKackEJ6fT2Fs5Ov_IsOp1T5tlm1xQE'}, u'serviceUrl': u'https://skype.botframework.com', u'action': u'remove', u'type': u'contactRelationUpdate', u'id': u'6Txlawp2K7d'}
 
-            if not self.jwt_utils.verify_request(request.headers['Authorization']):
-                self.logger.info('unverified request. ignoring.')
+            :return: empty response
+            """
+            self.logger.debug(request.headers)
+            if not self.auth.verify_request(request.headers['Authorization']):
+                self.logger.info('Unverified request. Ignoring.')
                 return ''
 
             request_json = request.json
@@ -86,7 +82,7 @@ class Bot:
             sender_id = request_json['from']['id']
             conversation_id = request_json['conversation']['id']
 
-            # answer to MS server pint request
+            # answer to MS server ping request
             if request_type == 'ping':
                 self.send(conversation_id=conversation_id, message='')
                 return ''
@@ -113,8 +109,6 @@ class Bot:
             self.logger.debug(request.json)
             message = request_json['text']
 
-            # DEBUG:bot:{u'recipient': {u'id': u'28:4f7d6c06-bb77-4f4a-b33c-51485be54c67', u'name': u'duxa-bot'}, u'from': {u'id': u'29:1dHAIi7JbBz8fGKackEJ6fT2Fs5Ov_IsOp1T5tlm1xQE', u'name': u'Andrey Mironenko'}, u'timestamp': u'2016-11-05T18:31:00.795Z', u'channelId': u'skype', u'conversation': {u'id': u'29:1dHAIi7JbBz8fGKackEJ6fT2Fs5Ov_IsOp1T5tlm1xQE'}, u'serviceUrl': u'https://skype.botframework.com', u'action': u'add', u'type': u'contactRelationUpdate', u'id': u'6xsmnHhoMQM'}
-            # DEBUG:bot:{u'recipient': {u'id': u'28:4f7d6c06-bb77-4f4a-b33c-51485be54c67', u'name': u'duxa-bot'}, u'from': {u'id': u'29:1dHAIi7JbBz8fGKackEJ6fT2Fs5Ov_IsOp1T5tlm1xQE', u'name': u'Andrey Mironenko'}, u'timestamp': u'2016-11-05T18:08:41.59Z', u'channelId': u'skype', u'conversation': {u'id': u'29:1dHAIi7JbBz8fGKackEJ6fT2Fs5Ov_IsOp1T5tlm1xQE'}, u'serviceUrl': u'https://skype.botframework.com', u'action': u'remove', u'type': u'contactRelationUpdate', u'id': u'6Txlawp2K7d'}
 
             answer = self.default_handler(message, request_type, conversation_id, sender_name, sender_id)
             self.send(conversation_id=conversation_id, message=answer)
@@ -126,5 +120,5 @@ class Bot:
     def set_relation_update_handler(self, function):
         self.relation_update_handler = function
 
-    def run(self, port=3978, host='localhost'):
-        self.app.run(debug=True, port=port, host=host)
+    def run(self, port=None, host=None):
+        self.app.run(debug=True, port=self.bot_port, host=self.bot_host)

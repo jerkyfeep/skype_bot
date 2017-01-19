@@ -9,7 +9,7 @@ For dev purposes locally running bot can be exposed to the Internet using [Ngrok
 
 Default bot endpoint is '/api/messages' at 'localhost:3978'.
 
-Code example ():
+Code example:
 
 ```python
 
@@ -35,4 +35,4 @@ if __name__ == "__main__":
 
 ```
 
-To run bot as a WSGI application use run_app as a callable object.
+To run bot as a WSGI application use `run_app` as a callable object.

@@ -1,3 +1,6 @@
+"""
+Module is currently not used.
+"""
 import logging
 from logging import config
 
