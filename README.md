@@ -1,4 +1,8 @@
-This skype bot uses [Microsoft Chat REST API V3](https://docs.botframework.com/en-us/skype/chat/#conversation-update)
+#Skype Bot 
+
+Implements [Microsoft Chat REST API V3](https://docs.botframework.com/en-us/skype/chat/#conversation-update) client.
+
+Currently Python 2.7 tested only.
 
 Steps to run the bot on your local machine:
 
