@@ -78,14 +78,17 @@ class Bot:
 
             request_json = request.json
             request_type = request_json['type']
-            sender_name = request_json['from']['name']
-            sender_id = request_json['from']['id']
             conversation_id = request_json['conversation']['id']
 
             # answer to MS server ping request
             if request_type == 'ping':
                 self.send(conversation_id=conversation_id, message='')
+                self.logger.debug('Ping request received.')
                 return ''
+
+            sender_name = request_json['from']['name']
+            sender_id = request_json['from']['id']
+
             # handle relation update request
             if request_type == 'contactRelationUpdate':
                 action = request_json['action']
